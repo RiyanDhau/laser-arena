@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>JhareShot Online</title>
+<link
+    rel="icon"
+    type="image/svg+xml"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%230B1324'/%3E%3Ccircle cx='50' cy='50' r='28' fill='none' stroke='%230EA5B7' stroke-width='6'/%3E%3Ccircle cx='50' cy='50' r='8' fill='%230EA5B7'/%3E%3Cpath d='M50 10 V30 M50 70 V90 M10 50 H30 M70 50 H90' stroke='%230EA5B7' stroke-width='5'/%3E%3C/svg%3E"
+>
+<style>
+  :root { --bg:#12121c; --panel:#1e2030; --line:#3a3e5c; --text:#e6e6f0; --muted:#9a9ab5; --accent:#ff5a5a; }
+  * { box-sizing:border-box; }
+  
+  body {
+      margin: 0;
+      color: var(--text);
+      font-family: system-ui, Segoe UI, Roboto, sans-serif;
+      min-height: 100vh;
+
+      background:
+          linear-gradient(rgba(8, 10, 24, 0.35), rgba(8, 10, 24, 0.55)),
+          url("/static/background.jpg") center / cover no-repeat fixed;
+  }
+
+  .hidden { display:none !important; }
+  .screen { max-width:960px; margin:0 auto; padding:16px; }
+  h1 { color:var(--accent); letter-spacing:2px; text-align:center; margin:24px 0 8px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px; max-width:440px; margin:16px auto; }
+  .muted { color:var(--muted); font-size:.9rem; }
+  input { width:100%; padding:12px; margin:6px 0 12px; border-radius:8px; border:1px solid var(--line); background:#14151f; color:var(--text); font-size:1rem; }
+  button { padding:12px 18px; border:0; border-radius:8px; background:var(--accent); color:#fff; font-size:1rem; font-weight:600; cursor:pointer; }
+  button.secondary { background:#3a3e5c; }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  .row { display:flex; gap:10px; }
+  .row > * { flex:1; }
+  #roomcode { font-size:2.6rem; letter-spacing:8px; text-align:center; font-weight:800; margin:8px 0; }
+  ul { list-style:none; padding:0; margin:8px 0; }
+  li { display:flex; align-items:center; gap:10px; padding:6px 0; }
+  .dot { width:14px; height:14px; border-radius:50%; border:2px solid #fff; flex:none; }
+  .status { margin-left:auto; color:var(--muted); font-size:.9rem; }
+  #gamewrap { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start; }
+  #arenabox { flex:1 1 560px; min-width:0; position:relative; }
+  #canvas { width:100%; height:auto; display:block; border-radius:10px; touch-action:none; cursor:crosshair; background:#1e2030; }
+  #side { flex:0 0 220px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 16px; }
+  #topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:8px; flex-wrap:wrap; }
+  #instr { color:var(--text); }
+  #timer { color:var(--muted); font-variant-numeric:tabular-nums; }
+  #controls { display:flex; gap:10px; margin-top:10px; }
+  #over { position:absolute; inset:0; background:rgba(10,10,18,.82); border-radius:10px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; text-align:center; padding:16px; }
+  #over h2 { font-size:2rem; margin:0; }
+  #toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(80px); background:#000c; border:1px solid var(--line); padding:10px 18px; border-radius:8px; transition:transform .25s; z-index:10; }
+  #toast.show { transform:translateX(-50%) translateY(0); }
+
+  /* Full-screen loading screen */
+  #loading-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: #080b16 url("/static/loading.png")
+                  center center / cover no-repeat;
+      opacity: 1;
+      visibility: visible;
+      transition: opacity 0.7s ease, visibility 0.7s ease;
+  }
+
+  /* Fade away when loading finishes */
+  #loading-screen.fade-out {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+  }
+
+</style>
+</head>
+<body>
+
+<div id="loading-screen"></div>
+
+<div id="home" class="screen">
+  <h1>Jhare Shot</h1>
+  <p class="muted" style="text-align:center">Place your character. Aim. Fire. Last one standing wins.</p>
+  <div class="card">
+    <label>Your name</label>
+    <input id="name" maxlength="16" placeholder="e.g. Gandu" autocomplete="off">
+    <button id="create" style="width:100%">Create a room</button>
+    <p class="muted" style="text-align:center">— or join friends —</p>
+    <div class="row">
+      <input id="code" maxlength="4" placeholder="ROOM CODE" autocomplete="off" style="text-transform:uppercase;margin:0">
+      <button id="join" class="secondary">Join</button>
+    </div>
+  </div>
+</div>
+
+<div id="lobby" class="screen hidden">
+  <h1>LOBBY</h1>
+  <div class="card">
+    <div class="muted" style="text-align:center">Room code</div>
+    <div id="roomcode">----</div>
+    <div class="muted" style="text-align:center">Invite link: <span id="invite"></span></div>
+    <ul id="plist"></ul>
+    <button id="start" style="width:100%">Start game</button>
+    <p id="waiting" class="muted" style="text-align:center">Waiting for the host to start…</p>
+  </div>
+</div>
+
+<div id="game" class="screen hidden">
+  <div id="topbar"><div id="instr"></div><div id="timer"></div></div>
+  <div id="gamewrap">
+    <div id="arenabox">
+      <canvas id="canvas" width="900" height="600"></canvas>
+      <div id="over" class="hidden">
+        <h2 id="overtext"></h2>
+        <button id="again" class="hidden">Play again</button>
+        <p id="overwait" class="muted hidden">Waiting for the host…</p>
+      </div>
+      <div id="controls">
+        <button id="lock" class="hidden">Lock in &amp; fire</button>
+        <button id="redo" class="secondary hidden">Redo position</button>
+      </div>
+    </div>
+    <div id="side"><strong>Players</strong><ul id="slist"></ul></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const canvas = $('canvas'), ctx = canvas.getContext('2d');
+  let ws = null, me = null, roomCode = null, hostPid = null;
+  let W = 900, H = 600, R = 16;
+  let playerList = [], screen = 'home', mode = 'home';
+  let myPos = null, myAngle = 0, hover = null;
+  let submitted = new Set(), reveal = null, deadline = 0;
+
+  const byPid = pid => playerList.find(p => p.pid === pid);
+
+  function show(name) {
+    screen = name;
+    for (const s of ['home', 'lobby', 'game']) $(s).classList.toggle('hidden', s !== name);
+    if (name !== 'game') $('over').classList.add('hidden');
+  }
+  function toast(msg) {
+    const t = $('toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 3000);
+  }
+  function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+
+  function resetAll() {
+    me = null; roomCode = null; playerList = []; reveal = null; mode = 'home'; ws = null;
+    show('home');
+  }
+  function connect(onopen) {
+    if (ws && ws.readyState <= 1) { onopen(); return; }
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const sock = ws = new WebSocket(`${proto}://${location.host}/ws`);
+    sock.onopen = onopen;
+    sock.onmessage = e => handle(JSON.parse(e.data));
+    sock.onclose = () => { if (sock !== ws) return; toast('Disconnected from server'); resetAll(); };
+  }
+
+  // ---------- UI ----------
+  const getName = () => { const n = $('name').value.trim().slice(0, 16); localStorage.setItem('laser_name', n); return n; };
+  $('create').onclick = () => connect(() => send({ type: 'create', name: getName() }));
+  $('join').onclick = () => {
+    const code = $('code').value.trim().toUpperCase();
+    if (!code) return toast('Enter a room code');
+    connect(() => send({ type: 'join', code, name: getName() }));
+  };
+  $('start').onclick = () => send({ type: 'start' });
+  $('again').onclick = () => send({ type: 'restart' });
+  $('lock').onclick = lock;
+  $('redo').onclick = redo;
+
+  function lock() {
+    if (mode !== 'aim') return;
+    send({ type: 'submit', x: myPos.x, y: myPos.y, angle: myAngle });
+    mode = 'locked'; refreshUI();
+  }
+  function redo() { if (mode === 'aim') { mode = 'pos'; myPos = null; refreshUI(); } }
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter') lock();
+    if (e.key === 'Escape') redo();
+  });
+
+  function renderLobby() {
+    $('roomcode').textContent = roomCode || '----';
+    $('invite').textContent = `${location.origin}/?room=${roomCode}`;
+    const ul = $('plist'); ul.innerHTML = '';
+    for (const p of playerList) {
+      const li = document.createElement('li');
+      const dot = document.createElement('span'); dot.className = 'dot'; dot.style.background = p.color;
+      const nm = document.createElement('span');
+      nm.textContent = p.name + (p.pid === me ? ' (you)' : '') + (p.pid === hostPid ? ' ★ host' : '');
+      li.append(dot, nm); ul.append(li);
+    }
+    const isHost = me === hostPid;
+    $('start').classList.toggle('hidden', !isHost);
+    $('start').disabled = playerList.length < 2;
+    $('waiting').classList.toggle('hidden', isHost);
+  }
+
+  function renderSide() {
+    const ul = $('slist'); ul.innerHTML = '';
+    for (const p of playerList) {
+      const li = document.createElement('li');
+      const dot = document.createElement('span'); dot.className = 'dot';
+      dot.style.background = p.alive ? p.color : '#555';
+      const nm = document.createElement('span');
+      nm.textContent = p.name + (p.pid === me ? ' (you)' : '');
+      if (!p.alive) nm.style.textDecoration = 'line-through';
+      const st = document.createElement('span'); st.className = 'status';
+      if (!p.alive) st.textContent = '☠ out';
+      else if (mode !== 'reveal' && submitted.has(p.pid)) st.textContent = '✔ ready';
+      else if (mode === 'pos' || mode === 'aim' || mode === 'locked' || mode === 'spectate') st.textContent = '…';
+      li.append(dot, nm, st); ul.append(li);
+    }
+  }
+
+  function refreshUI() {
+    const msgs = {
+      pos: 'Click or tap the arena to place your character.',
+      aim: 'Move the mouse (or tap / drag) to aim, then lock in.',
+      locked: 'Locked in. Waiting for the other players…',
+      spectate: "You're eliminated — spectating.",
+    };
+    if (mode in msgs) $('instr').textContent = msgs[mode];
+    $('lock').classList.toggle('hidden', mode !== 'aim');
+    $('redo').classList.toggle('hidden', mode !== 'aim');
+    renderSide();
+  }
+
+  // ---------- messages ----------
+  function handle(m) {
+    switch (m.type) {
+      case 'joined':
+        me = m.pid; roomCode = m.code; W = m.arena[0]; H = m.arena[1]; R = m.radius;
+        canvas.width = W; canvas.height = H; break;
+      case 'lobby':
+        playerList = m.players; hostPid = m.host; roomCode = m.code;
+        if (m.show || screen === 'lobby') { show('lobby'); renderLobby(); }
+        renderSide(); break;
+      case 'round_start':
+        show('game'); $('over').classList.add('hidden');
+        for (const p of playerList) p.alive = m.alive.includes(p.pid);
+        reveal = null; submitted = new Set(); myPos = null;
+        deadline = Date.now() + m.seconds * 1000;
+        mode = m.alive.includes(me) ? 'pos' : 'spectate';
+        refreshUI(); break;
+      case 'submitted':
+        submitted = new Set(m.pids); renderSide(); break;
+      case 'reveal': {
+        reveal = { data: m, start: performance.now() };
+        for (const pid of m.eliminated) { const p = byPid(pid); if (p) p.alive = false; }
+        mode = 'reveal'; deadline = Date.now() + m.next_in * 1000;
+        const names = m.eliminated.map(pid => (byPid(pid) || {}).name).filter(Boolean);
+        let txt = names.length ? `Round ${m.round}: eliminated — ${names.join(', ')}` : `Round ${m.round}: nobody was hit!`;
+        if (m.timed_out.length) txt += ` (${m.timed_out.length} timed out)`;
+        $('instr').textContent = txt;
+        refreshUI(); break;
+      }
+      case 'gameover': {
+        mode = 'over'; deadline = 0;
+        $('overtext').textContent = m.winner === null ? 'Draw — everyone was eliminated!' :
+          (m.winner === me ? '🏆 You win!' : `${m.name} wins!`);
+        const isHost = me === hostPid;
+        $('again').classList.toggle('hidden', !isHost);
+        $('overwait').classList.toggle('hidden', isHost);
+        $('over').classList.remove('hidden'); refreshUI(); break;
+      }
+      case 'error': toast(m.message); break;
+    }
+  }
+
+  // ---------- input ----------
+  function toCanvas(e) {
+    const r = canvas.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * canvas.width / r.width, y: (e.clientY - r.top) * canvas.height / r.height };
+  }
+  const inBounds = p => p.x >= R && p.x <= W - R && p.y >= R && p.y <= H - R;
+  const aimAt = p => Math.atan2(p.y - myPos.y, p.x - myPos.x);
+
+  canvas.addEventListener('pointerdown', e => {
+    const p = toCanvas(e);
+    if (mode === 'pos') {
+      if (inBounds(p)) { myPos = p; myAngle = aimAt({ x: W / 2, y: H / 2 }); mode = 'aim'; refreshUI(); }
+      else toast('Place your character fully inside the arena');
+    } else if (mode === 'aim') { myAngle = aimAt(p); }
+  });
+  canvas.addEventListener('pointermove', e => {
+    const p = toCanvas(e); hover = p;
+    if (mode === 'aim') myAngle = aimAt(p);
+  });
+  canvas.addEventListener('pointerleave', () => { hover = null; });
+
+  // ---------- drawing ----------
+  function drawBase() {
+    ctx.fillStyle = '#1e2030'; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(255,255,255,.05)'; ctx.lineWidth = 1;
+    for (let x = 50; x < W; x += 50) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 50; y < H; y += 50) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    ctx.strokeStyle = '#5a5f82'; ctx.lineWidth = 4; ctx.strokeRect(2, 2, W - 4, H - 4);
+  }
+  function drawPlayer(x, y, color, angle, dead, label) {
+    ctx.beginPath(); ctx.arc(x, y, R, 0, Math.PI * 2);
+    ctx.fillStyle = dead ? '#666' : color; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.stroke();
+    if (angle !== null && angle !== undefined) {
+      ctx.beginPath(); ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(angle) * (R + 14), y + Math.sin(angle) * (R + 14));
+      ctx.lineWidth = 4; ctx.strokeStyle = '#fff'; ctx.stroke();
+    }
+    if (dead) {
+      ctx.strokeStyle = '#ff4040'; ctx.lineWidth = 4; ctx.beginPath();
+      ctx.moveTo(x - R, y - R); ctx.lineTo(x + R, y + R); ctx.moveTo(x - R, y + R); ctx.lineTo(x + R, y - R); ctx.stroke();
+    }
+    if (label) {
+      ctx.fillStyle = '#fff'; ctx.font = '14px system-ui'; ctx.textAlign = 'center';
+      ctx.fillText(label, x, y - R - 8);
+    }
+  }
+  function drawPlacing() {
+    if (mode === 'pos' && hover && inBounds(hover)) {
+      ctx.setLineDash([5, 5]); ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(hover.x, hover.y, R, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    }
+    if (myPos && (mode === 'aim' || mode === 'locked')) {
+      const me_ = byPid(me);
+      if (mode === 'aim') {
+        ctx.setLineDash([8, 8]); ctx.strokeStyle = 'rgba(255,255,255,.45)'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(myPos.x, myPos.y);
+        ctx.lineTo(myPos.x + Math.cos(myAngle) * 2000, myPos.y + Math.sin(myAngle) * 2000);
+        ctx.stroke(); ctx.setLineDash([]);
+      }
+      drawPlayer(myPos.x, myPos.y, me_ ? me_.color : '#fff', myAngle, false, 'You');
+    }
+    if (mode === 'spectate') {
+      ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.font = '22px system-ui'; ctx.textAlign = 'center';
+      ctx.fillText('Spectating — positions are revealed after everyone locks in', W / 2, H / 2);
+    }
+  }
+  function drawReveal(now) {
+    const d = reveal.data, t = Math.min(1, (now - reveal.start) / 900);
+    for (const l of d.lasers) {
+      const p = byPid(l.pid), x1 = l.x0 + (l.x1 - l.x0) * t, y1 = l.y0 + (l.y1 - l.y0) * t;
+      ctx.save(); ctx.shadowColor = p ? p.color : '#fff'; ctx.shadowBlur = 14;
+      ctx.strokeStyle = p ? p.color : '#fff'; ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.moveTo(l.x0, l.y0); ctx.lineTo(x1, y1); ctx.stroke();
+      ctx.shadowBlur = 0; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); ctx.restore();
+    }
+    for (const q of d.players) {
+      const p = byPid(q.pid);
+      drawPlayer(q.x, q.y, p ? p.color : '#fff', q.angle, t >= 0.9 && d.eliminated.includes(q.pid), p ? p.name : '');
+    }
+  }
+  function updateTimer() {
+    const s = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    let txt = '';
+    if (mode === 'reveal') txt = d_next(s);
+    else if (['pos', 'aim', 'locked', 'spectate'].includes(mode)) txt = `Time left: ${s}s`;
+    if ($('timer').textContent !== txt) $('timer').textContent = txt;
+  }
+  const d_next = s => (reveal && reveal.data.game_over) ? '' : `Next round in ${s}s`;
+
+  function frame(now) {
+    drawBase();
+    if (reveal) drawReveal(now); else drawPlacing();
+    updateTimer();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ---------- init ----------
+  $('name').value = localStorage.getItem('laser_name') || '';
+  const room = new URLSearchParams(location.search).get('room');
+  if (room) $('code').value = room.toUpperCase();
+
+  // Hide the loading screen after 2.5 seconds
+  setTimeout(() => {
+      const loadingScreen = document.getElementById("loading-screen");
+
+      if (loadingScreen) {
+          loadingScreen.classList.add("fade-out");
+      }
+  }, 3500);
+
+})();
+</script>
+</body>
+</html>
