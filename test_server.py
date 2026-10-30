@@ -41,6 +41,32 @@ class ServerTest(unittest.TestCase):
             a.send_json({"type": "join", "code": "ZZZZ", "name": "A"})
             self.assertEqual(a.receive_json()["type"], "error")
 
+    def test_chat(self):
+        def next_chat(ws):
+            while True:
+                m = recv_until(ws, "chat")
+                if not m.get("system"):
+                    return m
+
+        with TestClient(server.app) as c, c.websocket_connect("/ws") as a, c.websocket_connect("/ws") as b:
+            a.send_json({"type": "create", "name": "Alice"})
+            joined = recv_until(a, "joined")
+            b.send_json({"type": "join", "code": joined["code"], "name": "Bob"})
+            recv_until(b, "joined")
+            self.assertEqual(recv_until(b, "chat_history")["type"], "chat_history")
+
+            a.send_json({"type": "chat", "text": "  hello   <b>there</b>  "})
+            m = next_chat(b)
+            self.assertEqual((m["name"], m["text"]), ("Alice", "hello <b>there</b>"))
+
+            a.send_json({"type": "chat", "text": "   "})            # empty -> ignored
+            a.send_json({"type": "chat", "text": "x" * 500})        # too long -> truncated
+            self.assertEqual(len(next_chat(b)["text"]), config.CHAT_MAX_LENGTH)
+
+            for _ in range(8):                                      # spam -> rate limited
+                a.send_json({"type": "chat", "text": "spam"})
+            self.assertEqual(recv_until(a, "error")["message"], "You're sending messages too fast.")
+
 
 if __name__ == "__main__":
     unittest.main()

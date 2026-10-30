@@ -8,8 +8,11 @@ Run:  uvicorn server:app --host 0.0.0.0 --port 8000
 """
 import asyncio
 import math
+import re
 import random
 import string
+import time
+from collections import deque
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -38,6 +41,7 @@ class Member:
         self.ws = ws
         self.connected = True
         self.player = Player(pid=pid, name=name, color=color)
+        self.chat_times = deque()       # timestamps of recent chat messages (rate limiting)
 
 
 class Room:
@@ -50,6 +54,7 @@ class Room:
         self.round = 0
         self.submitted = set()
         self.task: Optional[asyncio.Task] = None
+        self.chat_log: list = []        # last few chat messages, replayed to new joiners
 
     # ----- helpers -----
     def living(self):
@@ -94,6 +99,35 @@ class Room:
         if self.task and self.task is not asyncio.current_task():
             self.task.cancel()
         self.task = None
+
+    # ----- chat -----
+    async def _post(self, msg: dict):
+        self.chat_log.append(msg)
+        del self.chat_log[:-C.CHAT_HISTORY]
+        await self.broadcast(msg)
+
+    async def system_message(self, text: str):
+        await self._post({"type": "chat", "system": True, "text": text, "ts": time.time()})
+
+    async def chat(self, member: Member, text):
+        """Anyone in the room (including eliminated players) can chat in any phase."""
+        if not isinstance(text, str):
+            return
+        text = re.sub(r"[\x00-\x1f\x7f]+", " ", text)            # strip control characters
+        text = " ".join(text.split())[:C.CHAT_MAX_LENGTH]
+        if not text:
+            return
+        limit, window = C.CHAT_RATE_LIMIT
+        now = time.monotonic()
+        times = member.chat_times
+        while times and now - times[0] > window:
+            times.popleft()
+        if len(times) >= limit:
+            await self.send(member, {"type": "error", "message": "You're sending messages too fast."})
+            return
+        times.append(now)
+        await self._post({"type": "chat", "pid": member.pid, "name": member.player.name,
+                          "color": hex_color(member.player.color), "text": text, "ts": time.time()})
 
     # ----- game flow -----
     async def start(self, member: Member):
@@ -200,6 +234,7 @@ class Room:
 
     async def on_disconnect(self, member: Member):
         member.connected = False
+        await self.system_message(f"{member.player.name} left")
         if self.phase in ("lobby", "gameover"):
             self.members.pop(member.pid, None)
             if not self.members:
@@ -264,7 +299,11 @@ async def ws_endpoint(ws: WebSocket):
                 await ws.send_json({"type": "joined", "pid": member.pid, "code": room.code,
                                     "arena": [C.ARENA_RECT[2], C.ARENA_RECT[3]],
                                     "radius": C.PLAYER_RADIUS})
+                await ws.send_json({"type": "chat_history", "messages": room.chat_log})
                 await room.broadcast(room.lobby_payload(show=True))
+                await room.system_message(f"{member.player.name} joined")
+            elif t == "chat":
+                await room.chat(member, msg.get("text"))
             elif t == "start":
                 await room.start(member)
             elif t == "submit":

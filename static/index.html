@@ -43,7 +43,7 @@
   #gamewrap { display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start; }
   #arenabox { flex:1 1 560px; min-width:0; position:relative; }
   #canvas { width:100%; height:auto; display:block; border-radius:10px; touch-action:none; cursor:crosshair; background:#1e2030; }
-  #side { flex:0 0 220px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 16px; }
+  #side { flex:0 0 260px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 16px; }
   #topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:8px; flex-wrap:wrap; }
   #instr { color:var(--text); }
   #timer { color:var(--muted); font-variant-numeric:tabular-nums; }
@@ -72,6 +72,29 @@
       pointer-events: none;
   }
 
+
+  /* Chat */
+  #chat { background:rgba(0,0,0,.25); border:1px solid var(--line); border-radius:10px; padding:8px; margin-top:12px; text-align:left; }
+  #chatlog { height:200px; overflow-y:auto; font-size:.9rem; line-height:1.35; word-break:break-word; padding:2px 4px; }
+  #chatlog .msg { padding:2px 0; }
+  #chatlog .sys { color:var(--muted); font-style:italic; }
+  #chatrow { display:flex; gap:6px; margin-top:6px; }
+  #chatrow input { margin:0; padding:8px 10px; font-size:.95rem; }
+  #chatrow button { padding:8px 12px; }
+  #lobbyChatSlot #chatlog { height:160px; }
+  @media (max-width:640px) { #side { flex:1 1 100%; } #chatlog { height:150px; } }
+
+  /* Chat panel matches the arena height (JS sets #side's height to the canvas height) */
+  #side { display:flex; flex-direction:column; overflow:hidden; }
+  #slist { flex:none; max-height:45%; overflow-y:auto; }
+  #gameChatSlot { flex:1; min-height:0; display:flex; flex-direction:column; }
+  #gameChatSlot #chat { flex:1; min-height:0; display:flex; flex-direction:column; }
+  #gameChatSlot #chatlog { flex:1; height:auto; min-height:60px; }
+  /* when the screen is too narrow and the panel drops below the arena, use a normal fixed-height chat */
+  #side.stacked { overflow:visible; }
+  #side.stacked #slist { max-height:none; }
+  #side.stacked #gameChatSlot #chat { flex:none; }
+  #side.stacked #gameChatSlot #chatlog { flex:none; height:180px; }
 </style>
 </head>
 <body>
@@ -102,6 +125,7 @@
     <ul id="plist"></ul>
     <button id="start" style="width:100%">Start game</button>
     <p id="waiting" class="muted" style="text-align:center">Waiting for the host to start…</p>
+    <div id="lobbyChatSlot"></div>
   </div>
 </div>
 
@@ -120,7 +144,16 @@
         <button id="redo" class="secondary hidden">Redo position</button>
       </div>
     </div>
-    <div id="side"><strong>Players</strong><ul id="slist"></ul></div>
+    <div id="side"><strong>Players</strong><ul id="slist"></ul><div id="gameChatSlot"></div></div>
+  </div>
+</div>
+
+<div id="chat" class="hidden">
+  <strong>Chat</strong>
+  <div id="chatlog" aria-live="polite"></div>
+  <div id="chatrow">
+    <input id="chatinput" maxlength="200" placeholder="Type a message…" autocomplete="off">
+    <button id="chatsend" type="button">Send</button>
   </div>
 </div>
 
@@ -142,6 +175,11 @@
     screen = name;
     for (const s of ['home', 'lobby', 'game']) $(s).classList.toggle('hidden', s !== name);
     if (name !== 'game') $('over').classList.add('hidden');
+    // the single chat box moves between the lobby and the game screen
+    const slot = name === 'lobby' ? $('lobbyChatSlot') : name === 'game' ? $('gameChatSlot') : null;
+    if (slot) { slot.appendChild($('chat')); $('chatlog').scrollTop = $('chatlog').scrollHeight; }
+    $('chat').classList.toggle('hidden', !slot);
+    syncSideHeight();
   }
   function toast(msg) {
     const t = $('toast'); t.textContent = msg; t.classList.add('show');
@@ -150,6 +188,7 @@
   function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
 
   function resetAll() {
+    $('chatlog').innerHTML = '';
     me = null; roomCode = null; playerList = []; reveal = null; mode = 'home'; ws = null;
     show('home');
   }
@@ -182,6 +221,7 @@
   }
   function redo() { if (mode === 'aim') { mode = 'pos'; myPos = null; refreshUI(); } }
   document.addEventListener('keydown', e => {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;   // typing in a box (e.g. chat)
     if (e.key === 'Enter') lock();
     if (e.key === 'Escape') redo();
   });
@@ -233,6 +273,30 @@
     renderSide();
   }
 
+  // ---------- chat ----------
+  function addChat(m) {
+    const log = $('chatlog'), row = document.createElement('div');
+    if (m.system) {
+      row.className = 'msg sys'; row.textContent = m.text;
+    } else {
+      row.className = 'msg';
+      const who = document.createElement('b'); who.textContent = m.name; who.style.color = m.color;
+      row.append(who, document.createTextNode(': ' + m.text));   // textContent only -> no HTML injection
+    }
+    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+    log.append(row);
+    while (log.children.length > 100) log.firstChild.remove();
+    if (atBottom || m.pid === me) log.scrollTop = log.scrollHeight;
+  }
+  function sendChat() {
+    const input = $('chatinput'), text = input.value.trim();
+    if (!text) return;
+    send({ type: 'chat', text });
+    input.value = '';
+  }
+  $('chatsend').onclick = sendChat;
+  $('chatinput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); sendChat(); } });
+
   // ---------- messages ----------
   function handle(m) {
     switch (m.type) {
@@ -271,6 +335,8 @@
         $('overwait').classList.toggle('hidden', isHost);
         $('over').classList.remove('hidden'); refreshUI(); break;
       }
+      case 'chat': addChat(m); break;
+      case 'chat_history': $('chatlog').innerHTML = ''; m.messages.forEach(addChat); break;
       case 'error': toast(m.message); break;
     }
   }
@@ -372,6 +438,19 @@
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+
+  // ---------- keep the side panel (players + chat) exactly as tall as the arena ----------
+  function syncSideHeight() {
+    const side = $('side'), box = $('arenabox');
+    side.style.height = '';
+    side.classList.remove('stacked');
+    if (screen !== 'game') return;
+    if (side.offsetTop > box.offsetTop + 10) { side.classList.add('stacked'); return; }   // panel wrapped below the arena
+    const h = canvas.getBoundingClientRect().height;
+    if (h > 0) side.style.height = h + 'px';
+  }
+  if (window.ResizeObserver) new ResizeObserver(syncSideHeight).observe(canvas);
+  window.addEventListener('resize', syncSideHeight);
 
   // ---------- init ----------
   $('name').value = localStorage.getItem('laser_name') || '';
