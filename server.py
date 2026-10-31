@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 import config as C
-from game_logic import Player, can_place, resolve_round
+from game_logic import Player, bomb_victims, bomber_spots, can_place, fire_shots, powerup_count, resolve_round
 
 BASE = Path(__file__).parent
 app = FastAPI(title="Laser Arena Online")
@@ -55,6 +55,10 @@ class Room:
         self.submitted = set()
         self.task: Optional[asyncio.Task] = None
         self.chat_log: list = []        # last few chat messages, replayed to new joiners
+        self.powerups: list = []        # power-ups lying on the field this round
+        self.bombers: set = set()       # players who hold a bomb THIS round
+        self.next_bombers: set = set()  # players who found the bomber this round -> bomb next round
+        self.bomb_pos: dict = {}        # pid -> (x, y) where they secretly dropped their bomb
 
     # ----- helpers -----
     def living(self):
@@ -138,8 +142,55 @@ class Room:
             return
         for m in self.members.values():
             m.player.alive = True
+            m.player.shield = False
         self.round = 0
+        self.bombers, self.next_bombers, self.bomb_pos = set(), set(), {}
         await self.start_round()
+
+    def _spawn_powerups(self, n_living: int = 0):
+        """Hide power-ups in the arena. How many depends on the round (see game_logic.powerup_count);
+        clients are NOT told where they are until the round is fired."""
+        self.powerups = []
+        if not C.POWERUPS_ENABLED:
+            return
+        count = powerup_count(self.round, C.POWERUP_START_ROUND, C.POWERUP_TIER_END,
+                              C.POWERUP_TIER_SIZE, C.POWERUP_MAX_PER_ROUND)
+        types = list(C.POWERUP_TYPES)
+        if self.round >= C.DEFLECTOR_START_ROUND:
+            types.append("deflector")                       # joins the random mix after round 10
+        x, y, w, h = C.ARENA_RECT
+        m = C.POWERUP_MARGIN
+
+        def place(kind=None):
+            for _try in range(80):
+                px, py = random.uniform(x + m, x + w - m), random.uniform(y + m, y + h - m)
+                if all(math.dist((px, py), (q["x"], q["y"])) >= C.POWERUP_MIN_GAP for q in self.powerups):
+                    pu = {"id": len(self.powerups), "type": kind or random.choice(types), "x": round(px, 1), "y": round(py, 1)}
+                    if pu["type"] == "deflector":
+                        pu["turn"] = random.choice([1, -1])  # +1 bends beams clockwise (on screen), -1 counter-clockwise
+                    self.powerups.append(pu)
+                    return
+
+        if C.BOMBER_EVERY and self.round > 0 and self.round % C.BOMBER_EVERY == 0:
+            bx, by = random.choice(bomber_spots(C.ARENA_RECT, C.BOMBER_SPOT_INSET))   # a corner or the centre
+            self.powerups.append({"id": 0, "type": "bomber", "x": bx, "y": by})        # extra icon on rounds 10, 20, 30 ...
+        for _ in range(count):
+            place()
+
+    def _assign_powerups(self, placed):
+        """Whoever stands on a power-up gets it; if several do, the closest one wins (ties: lowest id).
+        Resolved only at fire time, so nobody learns where rivals stood."""
+        picks = []
+        for pu in self.powerups:
+            if pu["type"] == "deflector":
+                continue                                    # deflectors cannot be picked up
+            near = sorted((math.dist(p.pos, (pu["x"], pu["y"])), p.pid, p) for p in placed
+                          if p.powerup is None and math.dist(p.pos, (pu["x"], pu["y"])) <= C.POWERUP_PICKUP_RADIUS)
+            if near:
+                winner = near[0][2]
+                winner.powerup = pu["type"]
+                picks.append({"pid": winner.pid, "type": pu["type"], "id": pu["id"]})
+        return picks
 
     async def start_round(self):
         for m in self.members.values():
@@ -155,8 +206,17 @@ class Room:
         for m in living:
             m.player.pos = None
             m.player.angle = None
+            m.player.powerup = None
+        self._spawn_powerups(len(living))
+        # whoever found the bomber last round may drop a bomb now (if still alive)
+        self.bombers = {pid for pid in self.next_bombers if pid in self.members and self.members[pid].player.alive}
+        self.next_bombers = set()
+        self.bomb_pos = {}
         await self.broadcast({"type": "round_start", "round": self.round,
-                              "seconds": C.PLACING_SECONDS, "alive": [m.pid for m in living]})
+                              "seconds": C.PLACING_SECONDS, "alive": [m.pid for m in living],
+                              "hidden_powerups": len(self.powerups),       # only how many, never where
+                              "shields": [m.pid for m in living if m.player.shield],
+                              "bombers": sorted(self.bombers), "bomb_radius": C.BOMB_RADIUS})
         self._schedule(self._placing_timeout())
 
     async def _placing_timeout(self):
@@ -178,6 +238,14 @@ class Room:
             return
         member.player.pos = (x, y)
         member.player.angle = a
+        bomb = msg.get("bomb")                    # only bomb holders may send one; it stays secret until the reveal
+        if member.pid in self.bombers and isinstance(bomb, (list, tuple)) and len(bomb) == 2:
+            try:
+                bx, by = float(bomb[0]), float(bomb[1])
+                if math.isfinite(bx) and math.isfinite(by) and can_place((bx, by), [], C.ARENA_RECT, 0):
+                    self.bomb_pos[member.pid] = (bx, by)
+            except (TypeError, ValueError):
+                pass
         self.submitted.add(member.pid)
         await self.broadcast({"type": "submitted", "pids": sorted(self.submitted)})
         await self._check_all_submitted()
@@ -193,16 +261,47 @@ class Room:
         living = self.living()
         placed = [m.player for m in living if m.player.pos is not None]
         timed_out = {m.pid for m in living if m.player.pos is None}
-        lasers, hit = resolve_round(placed, C.ARENA_RECT, C.PLAYER_RADIUS, C.LASER_PIERCES)
-        eliminated = set(hit) | timed_out | {m.pid for m in living if not m.connected}
+        pickups = self._assign_powerups(placed)
+        self.next_bombers |= {k["pid"] for k in pickups if k["type"] == "bomber"}   # they bomb NEXT round
+        markers = [(pu["id"], (pu["x"], pu["y"])) for pu in self.powerups if pu["type"] != "deflector"]
+        deflectors = [(pu["id"], (pu["x"], pu["y"]), pu["turn"]) for pu in self.powerups if pu["type"] == "deflector"]
+        shots, hit = fire_shots(placed, C.ARENA_RECT, C.PLAYER_RADIUS, C.LASER_PIERCES,
+                                C.TORCH_HALF_ANGLE, C.REFLECTOR_BOUNCES, C.REFLECTOR_HITS_SELF,
+                                markers, C.POWERUP_BEAM_RADIUS, deflectors, C.DEFLECTOR_RADIUS)
+        # Bombs explode together with the lasers; they are hits like any other (so a shield can absorb them).
+        bombs, bombed = [], set()
+        for pid, (bx, by) in self.bomb_pos.items():
+            if pid in self.bombers and any(p.pid == pid for p in placed):
+                caught = bomb_victims((bx, by), C.BOMB_RADIUS, placed, C.PLAYER_RADIUS, pid)
+                bombs.append({"pid": pid, "x": bx, "y": by, "radius": C.BOMB_RADIUS, "hit": caught})
+                bombed.update(caught)
+        hit = set(hit) | bombed
+        self.bombers = set()
+        # Shield: a beam that touches a power-up icon (other than the one its shooter stands on) earns one,
+        # which protects its owner during the NEXT round only.
+        own = {k["pid"]: k["id"] for k in pickups}
+        gained = sorted({sh["pid"] for sh in shots if any(mid != own.get(sh["pid"]) for mid in sh["touched"])})
+        # A shield that is active NOW (earned last round) absorbs everything that hits its owner this round.
+        active = sorted(p.pid for p in placed if p.shield)
+        blocked = sorted(pid for pid in hit if self.members[pid].player.shield)
+        killed = set(hit) - set(blocked)
+        for p in placed:                                  # every shield lasts exactly one round, used or not
+            p.shield = False
+        for pid in gained:                                # shields earned this round start protecting next round
+            self.members[pid].player.shield = True
+        eliminated = killed | timed_out | {m.pid for m in living if not m.connected}
         for pid in eliminated:
             self.members[pid].player.alive = False
         over = len(self.living()) <= 1
+        shields = [m.pid for m in self.members.values() if m.player.alive and m.player.shield]
         await self.broadcast({
             "type": "reveal", "round": self.round, "next_in": C.REVEAL_SECONDS,
             "players": [{"pid": p.pid, "x": p.pos[0], "y": p.pos[1], "angle": p.angle} for p in placed],
-            "lasers": [{"pid": pid, "x0": a[0], "y0": a[1], "x1": b[0], "y1": b[1]}
-                       for pid, (a, b) in lasers.items()],
+            "shots": shots, "powerups": self.powerups, "pickups": pickups,      # hidden info is revealed now
+            "pickup_radius": C.POWERUP_PICKUP_RADIUS, "deflector_radius": C.DEFLECTOR_RADIUS,
+            "deflected": sorted(sh["pid"] for sh in shots if sh["deflected"]),
+            "shield_gained": gained, "active_shields": active, "blocked": blocked, "shields": shields,
+            "bombs": bombs, "bombed": sorted(bombed),
             "eliminated": sorted(eliminated), "timed_out": sorted(timed_out), "game_over": over,
         })
         self._schedule(self._after_reveal(over))
@@ -229,7 +328,9 @@ class Room:
             del self.members[pid]
         for m in self.members.values():
             m.player.alive = True
+            m.player.shield = False
         self.phase = "lobby"
+        self.bombers, self.next_bombers, self.bomb_pos = set(), set(), {}
         await self.broadcast(self.lobby_payload(show=True))
 
     async def on_disconnect(self, member: Member):
@@ -251,6 +352,18 @@ class Room:
         # if already submitted, their laser still fires this round; they are removed afterwards.
 
 
+def rules_payload() -> dict:
+    """Numbers shown in the in-game rulebook, so it always matches config.py."""
+    return {
+        "min_players": C.MIN_PLAYERS, "max_players": C.MAX_PLAYERS, "placing_seconds": C.PLACING_SECONDS,
+        "laser_pierces": C.LASER_PIERCES, "powerups_enabled": C.POWERUPS_ENABLED,
+        "powerup_start": C.POWERUP_START_ROUND, "tier_end": C.POWERUP_TIER_END, "tier_size": C.POWERUP_TIER_SIZE,
+        "pickup_radius": C.POWERUP_PICKUP_RADIUS, "torch_half_deg": C.TORCH_HALF_ANGLE,
+        "bounces": C.REFLECTOR_BOUNCES, "deflector_start": C.DEFLECTOR_START_ROUND,
+        "bomber_every": C.BOMBER_EVERY, "bomb_radius": C.BOMB_RADIUS,
+    }
+
+
 def new_code() -> str:
     while True:
         code = "".join(random.choice(CODE_CHARS) for _ in range(4))
@@ -260,7 +373,7 @@ def new_code() -> str:
 
 @app.get("/")
 async def index():
-    return FileResponse(BASE / "static" / "index.html")
+    return FileResponse(BASE / "static" / "index.html", headers={"Cache-Control": "no-cache"})   # always fetch the latest page
 
 
 @app.websocket("/ws")
@@ -298,7 +411,7 @@ async def ws_endpoint(ws: WebSocket):
                 member = room.add(str(msg.get("name", "")), ws)
                 await ws.send_json({"type": "joined", "pid": member.pid, "code": room.code,
                                     "arena": [C.ARENA_RECT[2], C.ARENA_RECT[3]],
-                                    "radius": C.PLAYER_RADIUS})
+                                    "radius": C.PLAYER_RADIUS, "rules": rules_payload()})
                 await ws.send_json({"type": "chat_history", "messages": room.chat_log})
                 await room.broadcast(room.lobby_payload(show=True))
                 await room.system_message(f"{member.player.name} joined")

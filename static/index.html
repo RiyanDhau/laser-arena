@@ -95,6 +95,24 @@
   #side.stacked #slist { max-height:none; }
   #side.stacked #gameChatSlot #chat { flex:none; }
   #side.stacked #gameChatSlot #chatlog { flex:none; height:180px; }
+
+  /* Rulebook */
+  #rules { position:fixed; inset:0; z-index:20; background:rgba(5,6,14,.78); display:flex; align-items:center; justify-content:center; padding:12px; }
+  #rulesBox { background:var(--panel); border:1px solid var(--line); border-radius:14px; width:100%; max-width:780px; max-height:90vh; display:flex; flex-direction:column; box-shadow:0 20px 60px rgba(0,0,0,.6); }
+  #rulesHead { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 18px; border-bottom:1px solid var(--line); }
+  #rulesHead h2 { margin:0; font-size:1.3rem; color:var(--accent); }
+  #rulesHead button { padding:6px 12px; }
+  #rulesBody { overflow-y:auto; padding:6px 20px 20px; line-height:1.5; font-size:.97rem; }
+  #rulesBody h3 { margin:18px 0 6px; color:#fff; }
+  #rulesBody .lead { font-size:1.05rem; color:var(--muted); }
+  #rulesBody ul { list-style:disc; padding-left:22px; margin:6px 0; }
+  #rulesBody ol { list-style:decimal; padding-left:22px; margin:6px 0; }
+  #rulesBody li { display:list-item; padding:3px 0; }
+  .pu-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:10px; margin:10px 0; }
+  .pu { border:1px solid var(--line); border-left-width:5px; border-radius:10px; padding:10px 12px; background:rgba(0,0,0,.2); font-size:.92rem; }
+  .pu.torch { border-left-color:#ffb020; } .pu.reflector { border-left-color:#d96bff; } .pu.shield { border-left-color:#78e6ff; }
+  .pu.deflector { border-left-color:#34d399; } .pu.bomber { border-left-color:#ff6a3d; }
+  #rulesDone { width:100%; margin-top:14px; }
 </style>
 </head>
 <body>
@@ -113,6 +131,7 @@
       <input id="code" maxlength="4" placeholder="ROOM CODE" autocomplete="off" style="text-transform:uppercase;margin:0">
       <button id="join" class="secondary">Join</button>
     </div>
+    <button id="rulesBtnHome" class="secondary" style="width:100%;margin-top:12px">📖 How to play</button>
   </div>
 </div>
 
@@ -125,12 +144,13 @@
     <ul id="plist"></ul>
     <button id="start" style="width:100%">Start game</button>
     <p id="waiting" class="muted" style="text-align:center">Waiting for the host to start…</p>
+    <button id="rulesBtnLobby" class="secondary" style="width:100%;margin-top:10px">📖 How to play</button>
     <div id="lobbyChatSlot"></div>
   </div>
 </div>
 
 <div id="game" class="screen hidden">
-  <div id="topbar"><div id="instr"></div><div id="timer"></div></div>
+  <div id="topbar"><div id="instr"></div><div style="display:flex;gap:10px;align-items:center"><div id="timer"></div><button id="rulesBtnGame" class="secondary" style="padding:6px 12px;font-size:.9rem">📖 Rules</button></div></div>
   <div id="gamewrap">
     <div id="arenabox">
       <canvas id="canvas" width="900" height="600"></canvas>
@@ -142,6 +162,7 @@
       <div id="controls">
         <button id="lock" class="hidden">Lock in &amp; fire</button>
         <button id="redo" class="secondary hidden">Redo position</button>
+        <button id="bomb" class="secondary hidden">💣 Place bomb</button>
       </div>
     </div>
     <div id="side"><strong>Players</strong><ul id="slist"></ul><div id="gameChatSlot"></div></div>
@@ -157,6 +178,54 @@
   </div>
 </div>
 
+<div id="rules" class="hidden" role="dialog" aria-modal="true" aria-labelledby="rulesTitle">
+  <div id="rulesBox">
+    <div id="rulesHead">
+      <h2 id="rulesTitle">📖 Welcome to Jhare Shot — the Rulebook</h2>
+      <button id="rulesClose" class="secondary" aria-label="Close the rulebook">✕</button>
+    </div>
+    <div id="rulesBody">
+      <p class="lead">Be the last player standing. Everybody hides, aims and fires at the same moment — so think like your opponents!</p>
+
+      <h3>🎯 How a round works</h3>
+      <ol>
+        <li><b>Place</b> — click or tap anywhere in the arena to put your character down. Nobody can see where anyone else stands.</li>
+        <li><b>Aim</b> — move the mouse (or tap / drag on a phone) to choose the direction you face. Your laser fires that way.</li>
+        <li><b>Lock in</b> — press <b>Lock in &amp; fire</b> (or Enter). You have <b data-rule="placing_seconds">40</b> seconds; if you don't lock in, you're out.</li>
+        <li><b>Fire!</b> — once everyone has locked in, all lasers fire <i>at the same time</i>. Anyone a laser <span data-rule="laser_text">hits is eliminated (a laser stops at the first player it hits)</span>. Two players aiming at each other both go down.</li>
+        <li>Survivors play the next round. The last player standing wins; if everyone is eliminated, it's a draw. Eliminated players keep watching and chatting.</li>
+      </ol>
+
+      <div id="rule-powerups">
+        <h3>✨ Hidden power-ups <small>(from round <span data-rule="powerup_start">4</span>)</small></h3>
+        <p>Power-ups are hidden in the arena. You are only told <i>how many</i> there are — never <i>where</i>. After each shot they are all revealed.</p>
+        <ul>
+          <li><b>How many:</b> rounds <span data-rule="powerup_start">4</span>–<span data-rule="tier_end">10</span> have <b>1</b>, rounds <span data-rule="t2s">11</span>–<span data-rule="t2e">20</span> have <b>2</b>, rounds <span data-rule="t3s">21</span>–<span data-rule="t3e">30</span> have <b>3</b> — and one more every <span data-rule="tier_size">10</span> rounds.</li>
+          <li><b>Activate one:</b> place your character within <span data-rule="pickup_radius">50</span>&nbsp;px of a hidden power-up and it's yours for that round's shot. If several players are on the same one, the closest wins.</li>
+          <li><b>Earn a shield:</b> if your beam <i>touches</i> a power-up icon (other than the one you're standing on) you earn a 🛡 Shield.</li>
+        </ul>
+        <div class="pu-grid">
+          <div class="pu torch"><b>🔦 Torch</b><br>Your laser becomes a triangle <b><span data-rule="torch_total">30</span>°</b> wide that hits <i>everyone</i> inside it.</div>
+          <div class="pu reflector"><b>🪞 Reflector</b><br>Your beam bounces off the walls <b data-rule="bounces">3</b> times. Careful: it can come back and hit <i>you</i>!</div>
+          <div class="pu shield"><b>🛡 Shield</b><br>Earned by touching an icon with your beam. It protects you during the <b>next round only</b>: it absorbs every hit on you that round, then expires.</div>
+          <div class="pu deflector" id="rule-deflector"><b>↪ Deflector</b> <small>(from round <span data-rule="deflector_start">11</span>)</small><br>A hidden bumper: any beam that touches it turns <b>90°</b>. It can't be picked up, and the Torch's wide cone isn't bent.</div>
+          <div class="pu bomber" id="rule-bomber"><b>💣 Bomber</b> <small>(rounds <span data-rule="bomber_list">10, 20, 30…</span>)</small><br>
+            Always hidden in <b>one of 5 spots: the four corners or the centre</b> — you know the spots, not which one it is. Stand on it and in the <b>next round</b> you get a bomb: after aiming, press <b>💣 Place bomb</b> and click anywhere. When the lasers fire it explodes (radius <b data-rule="bomb_radius">90</b>&nbsp;px) and eliminates every <i>other</i> player whose character touches the blast. A shield can absorb it. Everyone sees who holds a bomb — nobody sees where it lands.</div>
+        </div>
+      </div>
+
+      <h3>💡 Tips</h3>
+      <ul>
+        <li>Use the chat to bluff, make deals, or beg for mercy.</li>
+        <li>The corners and the centre are tempting on bomber rounds… but everyone knows it.</li>
+        <li>Don't aim a Reflector straight at a wall — it bounces right back at you.</li>
+        <li>A room holds <b data-rule="min_players">2</b>–<b data-rule="max_players">10</b> players.</li>
+      </ul>
+      <button id="rulesDone">Got it — let's play!</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -168,6 +237,9 @@
   let playerList = [], screen = 'home', mode = 'home';
   let myPos = null, myAngle = 0, hover = null;
   let submitted = new Set(), reveal = null, deadline = 0;
+  let bombers = [], bombRadius = 90, myBomb = null;          // bomber power-up: who holds a bomb this round, my secret bomb spot
+  let hiddenPowerups = 0, seenPowerups = false;            // power-ups are hidden: we only learn how many exist
+  let chatStick = true, chatIgnore = false;                // chat: keep pinned to the newest message
 
   const byPid = pid => playerList.find(p => p.pid === pid);
 
@@ -177,9 +249,10 @@
     if (name !== 'game') $('over').classList.add('hidden');
     // the single chat box moves between the lobby and the game screen
     const slot = name === 'lobby' ? $('lobbyChatSlot') : name === 'game' ? $('gameChatSlot') : null;
-    if (slot) { slot.appendChild($('chat')); $('chatlog').scrollTop = $('chatlog').scrollHeight; }
+    if (slot && $('chat').parentElement !== slot) slot.appendChild($('chat'));   // moving the box resets its scroll position...
     $('chat').classList.toggle('hidden', !slot);
     syncSideHeight();
+    if (slot && chatStick) chatToBottom();                                       // ...so jump back to the newest message
   }
   function toast(msg) {
     const t = $('toast'); t.textContent = msg; t.classList.add('show');
@@ -188,7 +261,7 @@
   function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
 
   function resetAll() {
-    $('chatlog').innerHTML = '';
+    $('chatlog').innerHTML = ''; chatStick = true;
     me = null; roomCode = null; playerList = []; reveal = null; mode = 'home'; ws = null;
     show('home');
   }
@@ -214,16 +287,21 @@
   $('lock').onclick = lock;
   $('redo').onclick = redo;
 
+  const hasBomb = () => bombers.includes(me) && (byPid(me) || {}).alive !== false;
   function lock() {
     if (mode !== 'aim') return;
-    send({ type: 'submit', x: myPos.x, y: myPos.y, angle: myAngle });
+    const msg = { type: 'submit', x: myPos.x, y: myPos.y, angle: myAngle };
+    if (hasBomb() && myBomb) msg.bomb = [myBomb.x, myBomb.y];          // the bomb stays secret until the reveal
+    send(msg);
     mode = 'locked'; refreshUI();
   }
-  function redo() { if (mode === 'aim') { mode = 'pos'; myPos = null; refreshUI(); } }
+  function redo() { if (mode === 'aim') { mode = 'pos'; myPos = null; myBomb = null; refreshUI(); } }
+  $('bomb').onclick = () => { if (mode === 'aim' && hasBomb()) { mode = 'bomb'; refreshUI(); } };
   document.addEventListener('keydown', e => {
+    if (!$('rules').classList.contains('hidden')) { if (e.key === 'Escape') closeRules(); return; }   // rulebook open: ignore game keys
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;   // typing in a box (e.g. chat)
     if (e.key === 'Enter') lock();
-    if (e.key === 'Escape') redo();
+    if (e.key === 'Escape') { if (mode === 'bomb') { mode = 'aim'; refreshUI(); } else redo(); }
   });
 
   function renderLobby() {
@@ -250,27 +328,51 @@
       const dot = document.createElement('span'); dot.className = 'dot';
       dot.style.background = p.alive ? p.color : '#555';
       const nm = document.createElement('span');
-      nm.textContent = p.name + (p.pid === me ? ' (you)' : '');
+      nm.textContent = p.name + (p.pid === me ? ' (you)' : '') + (p.alive && p.shield ? ' 🛡' : '') + (p.alive && bombers.includes(p.pid) ? ' 💣' : '');
       if (!p.alive) nm.style.textDecoration = 'line-through';
       const st = document.createElement('span'); st.className = 'status';
       if (!p.alive) st.textContent = '☠ out';
       else if (mode !== 'reveal' && submitted.has(p.pid)) st.textContent = '✔ ready';
-      else if (mode === 'pos' || mode === 'aim' || mode === 'locked' || mode === 'spectate') st.textContent = '…';
+      else if (mode === 'pos' || mode === 'aim' || mode === 'bomb' || mode === 'locked' || mode === 'spectate') st.textContent = '…';
       li.append(dot, nm, st); ul.append(li);
     }
   }
 
   function refreshUI() {
     const msgs = {
-      pos: 'Click or tap the arena to place your character.',
-      aim: 'Move the mouse (or tap / drag) to aim, then lock in.',
+      pos: 'Click or tap the arena to place your character.' + (hiddenPowerups ? ` ${hiddenPowerups} hidden power-ups are somewhere in the arena — you might land on one!` : '') +
+             (bombers.length ? ` 💣 Bomb holder${bombers.length > 1 ? 's' : ''} this round: ${bombers.map(pid => pid === me ? 'you' : (byPid(pid) || {}).name).join(', ')}.` : ''),
+      aim: 'Move the mouse (or tap / drag) to aim, then lock in.' + (hasBomb() ? (myBomb ? ' Your bomb is set.' : ' You hold a 💣 bomb: press “Place bomb” first!') : ''),
+      bomb: `Click anywhere in the arena to drop your bomb (blast radius ${bombRadius}px). Esc to cancel.`,
       locked: 'Locked in. Waiting for the other players…',
       spectate: "You're eliminated — spectating.",
     };
     if (mode in msgs) $('instr').textContent = msgs[mode];
     $('lock').classList.toggle('hidden', mode !== 'aim');
     $('redo').classList.toggle('hidden', mode !== 'aim');
+    $('bomb').classList.toggle('hidden', !(mode === 'aim' && hasBomb()));
+    $('bomb').textContent = myBomb ? '💣 Move bomb' : '💣 Place bomb';
+    $('lock').textContent = hasBomb() && !myBomb ? 'Lock in (no bomb)' : 'Lock in & fire';
     renderSide();
+  }
+
+  // ---------- rulebook ----------
+  const openRules = () => { $('rules').classList.remove('hidden'); $('rulesBody').scrollTop = 0; };
+  const closeRules = () => $('rules').classList.add('hidden');
+  for (const id of ['rulesBtnHome', 'rulesBtnLobby', 'rulesBtnGame']) $(id).onclick = openRules;
+  $('rulesClose').onclick = closeRules; $('rulesDone').onclick = closeRules;
+  $('rules').addEventListener('pointerdown', e => { if (e.target === $('rules')) closeRules(); });   // click outside the book
+  function applyRules(r) {                       // fill the rulebook with the server's real numbers (config.py)
+    const v = { ...r,
+      t2s: r.tier_end + 1, t2e: r.tier_end + r.tier_size, t3s: r.tier_end + r.tier_size + 1, t3e: r.tier_end + 2 * r.tier_size,
+      torch_total: 2 * r.torch_half_deg,
+      bomber_list: r.bomber_every ? [1, 2, 3].map(k => k * r.bomber_every).join(', ') + '…' : '',
+      laser_text: r.laser_pierces ? 'crosses is eliminated (a laser passes through everyone in its path)'
+                                  : 'hits is eliminated (a laser stops at the first player it hits)' };
+    for (const [k, val] of Object.entries(v))
+      document.querySelectorAll(`[data-rule="${k}"]`).forEach(el => { el.textContent = String(val); });
+    $('rule-powerups').classList.toggle('hidden', !r.powerups_enabled);
+    $('rule-bomber').classList.toggle('hidden', !r.bomber_every);
   }
 
   // ---------- chat ----------
@@ -283,11 +385,23 @@
       const who = document.createElement('b'); who.textContent = m.name; who.style.color = m.color;
       row.append(who, document.createTextNode(': ' + m.text));   // textContent only -> no HTML injection
     }
-    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+    const stick = chatStick || m.pid === me;          // reading old messages? don't yank the view (unless you just sent one)
     log.append(row);
     while (log.children.length > 100) log.firstChild.remove();
-    if (atBottom || m.pid === me) log.scrollTop = log.scrollHeight;
+    if (stick) { chatStick = true; chatToBottom(); }
   }
+  function chatToBottom() {
+    const log = $('chatlog');
+    chatIgnore = true;                                // the scroll event we are about to cause must not count as the user scrolling
+    log.scrollTop = log.scrollHeight;
+    requestAnimationFrame(() => { chatIgnore = false; });
+  }
+  $('chatlog').addEventListener('scroll', () => {
+    const log = $('chatlog');
+    if (chatIgnore || log.clientHeight === 0) return;   // ignore our own scrolls and the box being hidden/moved
+    chatStick = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  });
+  if (window.ResizeObserver) new ResizeObserver(() => { if (chatStick) chatToBottom(); }).observe($('chatlog'));
   function sendChat() {
     const input = $('chatinput'), text = input.value.trim();
     if (!text) return;
@@ -302,15 +416,20 @@
     switch (m.type) {
       case 'joined':
         me = m.pid; roomCode = m.code; W = m.arena[0]; H = m.arena[1]; R = m.radius;
-        canvas.width = W; canvas.height = H; break;
+        canvas.width = W; canvas.height = H;
+        if (m.rules) applyRules(m.rules); break;
       case 'lobby':
         playerList = m.players; hostPid = m.host; roomCode = m.code;
         if (m.show || screen === 'lobby') { show('lobby'); renderLobby(); }
         renderSide(); break;
       case 'round_start':
         show('game'); $('over').classList.add('hidden');
-        for (const p of playerList) p.alive = m.alive.includes(p.pid);
+        for (const p of playerList) { p.alive = m.alive.includes(p.pid); p.shield = (m.shields || []).includes(p.pid); }
         reveal = null; submitted = new Set(); myPos = null;
+        hiddenPowerups = m.hidden_powerups || 0;
+        bombers = m.bombers || []; bombRadius = m.bomb_radius || 90; myBomb = null;
+        if (bombers.length) toast(`💣 ${bombers.map(pid => (byPid(pid) || {}).name).join(', ')} will drop a hidden bomb this round!`);
+        if (hiddenPowerups && !seenPowerups) { seenPowerups = true; toast('Hidden power-ups are in play. You never know where!'); }
         deadline = Date.now() + m.seconds * 1000;
         mode = m.alive.includes(me) ? 'pos' : 'spectate';
         refreshUI(); break;
@@ -319,10 +438,20 @@
       case 'reveal': {
         reveal = { data: m, start: performance.now() };
         for (const pid of m.eliminated) { const p = byPid(pid); if (p) p.alive = false; }
+        for (const p of playerList)
+          p.shield = (m.shields || []).includes(p.pid);       // shields earned this round protect the NEXT one
         mode = 'reveal'; deadline = Date.now() + m.next_in * 1000;
         const names = m.eliminated.map(pid => (byPid(pid) || {}).name).filter(Boolean);
         let txt = names.length ? `Round ${m.round}: eliminated — ${names.join(', ')}` : `Round ${m.round}: nobody was hit!`;
         if (m.timed_out.length) txt += ` (${m.timed_out.length} timed out)`;
+        if (m.pickups && m.pickups.length)
+          txt += ' · ' + m.pickups.map(k => `${(byPid(k.pid) || {}).name} found the ${(PU[k.type] || {}).name}${k.type === 'bomber' ? ' (bomb next round!)' : ''}`).join(', ');
+        const nm = pid => (byPid(pid) || {}).name;
+        if (m.shield_gained && m.shield_gained.length) txt += ' · 🛡 ' + m.shield_gained.map(nm).join(', ') + ' earned a shield (protects next round)';
+        if (m.blocked && m.blocked.length) txt += ' · ' + m.blocked.map(nm).join(', ') + "'s shield blocked a hit";
+        if (m.deflected && m.deflected.length) txt += ' · ' + m.deflected.map(nm).join(', ') + "'s beam was bent 90°";
+        if (m.bombs && m.bombs.length)
+          txt += ' · ' + m.bombs.map(b => `💥 ${nm(b.pid)}'s bomb ${b.hit.length ? 'caught ' + b.hit.map(nm).join(', ') : 'hit nobody'}`).join(', ');
         $('instr').textContent = txt;
         refreshUI(); break;
       }
@@ -336,7 +465,7 @@
         $('over').classList.remove('hidden'); refreshUI(); break;
       }
       case 'chat': addChat(m); break;
-      case 'chat_history': $('chatlog').innerHTML = ''; m.messages.forEach(addChat); break;
+      case 'chat_history': chatStick = true; $('chatlog').innerHTML = ''; m.messages.forEach(addChat); break;
       case 'error': toast(m.message); break;
     }
   }
@@ -355,6 +484,9 @@
       if (inBounds(p)) { myPos = p; myAngle = aimAt({ x: W / 2, y: H / 2 }); mode = 'aim'; refreshUI(); }
       else toast('Place your character fully inside the arena');
     } else if (mode === 'aim') { myAngle = aimAt(p); }
+    else if (mode === 'bomb') {
+      if (p.x >= 0 && p.x <= W && p.y >= 0 && p.y <= H) { myBomb = { x: p.x, y: p.y }; mode = 'aim'; refreshUI(); }
+    }
   });
   canvas.addEventListener('pointermove', e => {
     const p = toCanvas(e); hover = p;
@@ -388,7 +520,126 @@
       ctx.fillText(label, x, y - R - 8);
     }
   }
-  function drawPlacing() {
+  // ---------- power-ups ----------
+  const PU = {
+    torch:     { color: '#ffb020', label: 'TORCH',     name: 'Torch' },
+    reflector: { color: '#d96bff', label: 'REFLECTOR', name: 'Reflector' },
+    deflector: { color: '#34d399', label: 'DEFLECTOR', name: 'Deflector' },
+    bomber:    { color: '#ff6a3d', label: 'BOMBER',    name: 'Bomber' },
+  };
+  const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
+
+  function drawPowerup(pu, now, faded, ring) {
+    const info = PU[pu.type] || PU.torch, c = info.color, pulse = 0.5 + 0.5 * Math.sin(now / 280 + pu.id * 2);
+    const base = faded ? 0.3 : 1;
+    ctx.save();
+    ctx.globalAlpha = base * (0.45 + 0.3 * pulse);                       // pickup zone ring
+    ctx.setLineDash([6, 6]); ctx.lineWidth = 2; ctx.strokeStyle = c;
+    ctx.beginPath(); ctx.arc(pu.x, pu.y, ring, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]); ctx.globalAlpha = base;
+    ctx.shadowColor = c; ctx.shadowBlur = 12 + 10 * pulse;               // glowing badge
+    ctx.fillStyle = 'rgba(10,12,24,.92)'; ctx.strokeStyle = c; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(pu.x, pu.y, 20, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0; ctx.fillStyle = c; ctx.strokeStyle = c;
+    if (pu.type === 'torch') {                                           // cone icon
+      ctx.beginPath(); ctx.moveTo(pu.x - 9, pu.y); ctx.lineTo(pu.x + 10, pu.y - 10); ctx.lineTo(pu.x + 10, pu.y + 10);
+      ctx.closePath(); ctx.fill();
+    } else if (pu.type === 'bomber') {                                   // bomb icon
+      ctx.beginPath(); ctx.arc(pu.x - 1, pu.y + 3, 8, 0, Math.PI * 2); ctx.fill();
+      ctx.lineWidth = 3; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(pu.x + 4, pu.y - 3); ctx.lineTo(pu.x + 8, pu.y - 9); ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(pu.x + 9, pu.y - 10, 2.5, 0, Math.PI * 2); ctx.fill();
+    } else if (pu.type === 'deflector') {                                // bent arrow: which way it turns the beam
+      const k = pu.turn > 0 ? 1 : -1;                                    // +1: right -> down, -1: right -> up
+      ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(pu.x - 11, pu.y - 8 * k); ctx.lineTo(pu.x + 5, pu.y - 8 * k); ctx.lineTo(pu.x + 5, pu.y + 4 * k); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(pu.x + 5, pu.y + 10 * k); ctx.lineTo(pu.x - 1, pu.y + 3 * k); ctx.lineTo(pu.x + 11, pu.y + 3 * k);
+      ctx.closePath(); ctx.fill();
+    } else {                                                             // zig-zag (bouncing beam) icon
+      ctx.lineWidth = 3; ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(pu.x - 11, pu.y + 8); ctx.lineTo(pu.x - 4, pu.y - 7);
+      ctx.lineTo(pu.x + 3, pu.y + 8); ctx.lineTo(pu.x + 11, pu.y - 7); ctx.stroke();
+    }
+    ctx.fillStyle = '#fff'; ctx.font = '11px system-ui'; ctx.textAlign = 'center';
+    ctx.fillText(info.label, pu.x, pu.y + 33);
+    ctx.restore();
+  }
+  function drawShot(s, col, t) {    // t = animation progress 0..1
+    ctx.save();
+    if (s.kind === 'torch') {       // a growing triangle that pierces everything inside it
+      ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip();
+      const L = 2200 * t, a1 = s.angle - s.half, a2 = s.angle + s.half;
+      const g = ctx.createLinearGradient(s.x0, s.y0, s.x0 + Math.cos(s.angle) * L, s.y0 + Math.sin(s.angle) * L);
+      g.addColorStop(0, rgba(col, .9)); g.addColorStop(1, rgba(col, .12));
+      ctx.beginPath(); ctx.moveTo(s.x0, s.y0);
+      ctx.lineTo(s.x0 + Math.cos(a1) * L, s.y0 + Math.sin(a1) * L);
+      ctx.lineTo(s.x0 + Math.cos(a2) * L, s.y0 + Math.sin(a2) * L);
+      ctx.closePath(); ctx.fillStyle = g; ctx.fill();
+      ctx.shadowColor = col; ctx.shadowBlur = 14; ctx.strokeStyle = rgba(col, .95); ctx.lineWidth = 3; ctx.stroke();
+      ctx.shadowBlur = 0; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(s.x0, s.y0); ctx.lineTo(s.x0 + Math.cos(s.angle) * L, s.y0 + Math.sin(s.angle) * L); ctx.stroke();
+    } else {                        // laser / reflector: a polyline drawn up to progress t
+      const pts = s.points; let total = 0;
+      for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+      let left = total * t, done = 0; const flares = [];
+      ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length && left > 0; i++) {
+        const [ax, ay] = pts[i - 1], [bx, by] = pts[i], seg = Math.hypot(bx - ax, by - ay);
+        if (seg <= left) { ctx.lineTo(bx, by); left -= seg; done += seg; if (i < pts.length - 1) flares.push([bx, by]); }
+        else { const f = left / seg; ctx.lineTo(ax + (bx - ax) * f, ay + (by - ay) * f); left = 0; }
+      }
+      ctx.shadowColor = col; ctx.shadowBlur = 14; ctx.strokeStyle = col; ctx.lineWidth = 6; ctx.stroke();
+      ctx.shadowBlur = 0; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+      if (s.kind === 'reflector') for (const [fx, fy] of flares) {          // spark where the beam bounces
+        ctx.fillStyle = '#fff'; ctx.shadowColor = col; ctx.shadowBlur = 16;
+        ctx.beginPath(); ctx.arc(fx, fy, 6, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawShieldRing(x, y, now, flash, dashed) {
+    const pulse = 0.5 + 0.5 * Math.sin(now / 200), rr = dashed ? R + 13 : R + 8;
+    ctx.save(); ctx.strokeStyle = 'rgba(120,230,255,.95)'; ctx.shadowColor = '#78e6ff';
+    ctx.shadowBlur = 10 + 8 * pulse; ctx.lineWidth = 3;
+    if (dashed) ctx.setLineDash([5, 4]);            // dashed ring: earned now, protects next round
+    ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.stroke();
+    if (flash) {                                  // the shield just absorbed a hit
+      ctx.lineWidth = 2; ctx.strokeStyle = '#fff';
+      ctx.beginPath(); ctx.arc(x, y, R + 18, 0, Math.PI * 2); ctx.stroke();
+      ctx.shadowBlur = 0; ctx.fillStyle = '#bff3ff'; ctx.font = 'bold 12px system-ui'; ctx.textAlign = 'center';
+      ctx.fillText('BLOCKED!', x, y + R + 36);
+    }
+    ctx.restore();
+  }
+
+  function drawBombMarker(b, now, ghost) {      // my own secret bomb (only I ever see this before the reveal)
+    const pulse = 0.5 + 0.5 * Math.sin(now / 220);
+    ctx.save();
+    ctx.globalAlpha = ghost ? 0.55 : 1;
+    ctx.fillStyle = 'rgba(255,90,40,.12)'; ctx.strokeStyle = 'rgba(255,120,60,' + (0.55 + 0.3 * pulse) + ')'; ctx.lineWidth = 2;
+    ctx.setLineDash([8, 6]);
+    ctx.beginPath(); ctx.arc(b.x, b.y, bombRadius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.setLineDash([]); ctx.font = '24px system-ui'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
+    ctx.fillText('💣', b.x, b.y + 8);
+    ctx.restore();
+  }
+  function drawBomb(b, t) {                      // reveal: expanding shockwave; t = progress 0..1
+    const col = (byPid(b.pid) || {}).color || '#ff6a3d', r = Math.max(1, b.radius * Math.min(1, t * 1.6));
+    ctx.save();
+    const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, r);
+    g.addColorStop(0, 'rgba(255,240,170,.85)'); g.addColorStop(0.5, 'rgba(255,120,40,.55)'); g.addColorStop(1, 'rgba(255,60,20,.15)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowColor = '#ff6a3d'; ctx.shadowBlur = 16; ctx.strokeStyle = col; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.shadowBlur = 0; ctx.font = '22px system-ui'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
+    ctx.fillText('💣', b.x, b.y + 8);
+    ctx.restore();
+  }
+
+  function drawPlacing(now) {
+    if (myBomb && (mode === 'aim' || mode === 'bomb' || mode === 'locked')) drawBombMarker(myBomb, now, false);
+    if (mode === 'bomb' && hover) drawBombMarker(hover, now, true);
     if (mode === 'pos' && hover && inBounds(hover)) {
       ctx.setLineDash([5, 5]); ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(hover.x, hover.y, R, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
@@ -402,6 +653,7 @@
         ctx.stroke(); ctx.setLineDash([]);
       }
       drawPlayer(myPos.x, myPos.y, me_ ? me_.color : '#fff', myAngle, false, 'You');
+      if (me_ && me_.shield) drawShieldRing(myPos.x, myPos.y, now, false);
     }
     if (mode === 'spectate') {
       ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.font = '22px system-ui'; ctx.textAlign = 'center';
@@ -409,31 +661,34 @@
     }
   }
   function drawReveal(now) {
-    const d = reveal.data, t = Math.min(1, (now - reveal.start) / 900);
-    for (const l of d.lasers) {
-      const p = byPid(l.pid), x1 = l.x0 + (l.x1 - l.x0) * t, y1 = l.y0 + (l.y1 - l.y0) * t;
-      ctx.save(); ctx.shadowColor = p ? p.color : '#fff'; ctx.shadowBlur = 14;
-      ctx.strokeStyle = p ? p.color : '#fff'; ctx.lineWidth = 6;
-      ctx.beginPath(); ctx.moveTo(l.x0, l.y0); ctx.lineTo(x1, y1); ctx.stroke();
-      ctx.shadowBlur = 0; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke(); ctx.restore();
-    }
+    const d = reveal.data, shots = d.shots || [];
+    const t = Math.min(1, (now - reveal.start) / (shots.some(s => s.kind === 'reflector') ? 1500 : 900));
+    const used = new Set((d.pickups || []).map(k => k.id));                  // found by standing on it...
+    for (const sh of shots) for (const id of [...(sh.touched || []), ...(sh.deflected || [])]) used.add(id);   // ...or touched by a beam
+    for (const pu of (d.powerups || []))
+      drawPowerup(pu, now, !used.has(pu.id), pu.type === 'deflector' ? (d.deflector_radius || 24) : (d.pickup_radius || 50));
+    for (const b of (d.bombs || [])) drawBomb(b, t);
+    for (const s of shots) drawShot(s, (byPid(s.pid) || {}).color || '#ffffff', t);
     for (const q of d.players) {
       const p = byPid(q.pid);
       drawPlayer(q.x, q.y, p ? p.color : '#fff', q.angle, t >= 0.9 && d.eliminated.includes(q.pid), p ? p.name : '');
+      const blockedNow = (d.blocked || []).includes(q.pid);
+      if ((d.active_shields || []).includes(q.pid)) drawShieldRing(q.x, q.y, now, blockedNow && t >= 0.9);   // protected this round
+      if ((d.shield_gained || []).includes(q.pid)) drawShieldRing(q.x, q.y, now, false, true);              // earned: protects next round
     }
   }
   function updateTimer() {
     const s = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
     let txt = '';
     if (mode === 'reveal') txt = d_next(s);
-    else if (['pos', 'aim', 'locked', 'spectate'].includes(mode)) txt = `Time left: ${s}s`;
+    else if (['pos', 'aim', 'bomb', 'locked', 'spectate'].includes(mode)) txt = `Time left: ${s}s`;
     if ($('timer').textContent !== txt) $('timer').textContent = txt;
   }
   const d_next = s => (reveal && reveal.data.game_over) ? '' : `Next round in ${s}s`;
 
   function frame(now) {
     drawBase();
-    if (reveal) drawReveal(now); else drawPlacing();
+    if (reveal) drawReveal(now); else drawPlacing(now);
     updateTimer();
     requestAnimationFrame(frame);
   }
