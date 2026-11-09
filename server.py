@@ -14,10 +14,11 @@ import string
 import time
 from collections import deque
 from pathlib import Path
+from urllib.parse import quote
 from typing import Dict, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import config as C
@@ -369,6 +370,22 @@ def new_code() -> str:
         code = "".join(random.choice(CODE_CHARS) for _ in range(4))
         if code not in rooms:
             return code
+
+
+MUSIC_EXTS = {".mp3", ".ogg", ".wav", ".m4a", ".opus", ".webm"}
+
+
+@app.get("/api/music")
+async def music_list():
+    """Songs for the shuffled background playlist: every audio file in static/music/ (plus an old static/music.mp3)."""
+    folder = BASE / "static" / "music"
+    tracks = []
+    if folder.is_dir():
+        tracks = [f"/static/music/{quote(f.name)}" for f in sorted(folder.iterdir())
+                  if f.is_file() and f.suffix.lower() in MUSIC_EXTS]
+    if (BASE / "static" / "music.mp3").is_file():
+        tracks.append("/static/music.mp3")
+    return JSONResponse({"tracks": tracks}, headers={"Cache-Control": "no-cache"})   # new songs show up on refresh
 
 
 @app.get("/")
